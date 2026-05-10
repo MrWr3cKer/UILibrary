@@ -440,6 +440,13 @@ function Library:CreateWindow(config)
 		end
 	end)
 
+	RunService.RenderStepped:Connect(function()
+	    if MainFrame.Visible and not Library.IsMinimized then
+	        UserInputService.MouseIconEnabled = true
+	        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	    end
+	end)
+
 	-- ================= SIDEBAR & SEARCH =================
 	local SidebarContainer = Instance.new("Frame", MainFrame)
 	SidebarContainer.Size = UDim2.new(0, 140, 1, -40)
