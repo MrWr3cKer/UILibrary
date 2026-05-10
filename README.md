@@ -3,10 +3,12 @@
 This guide explains how to use the UI library to build a script menu in Roblox.
 
 1. Initial Setup (Loading the Library)
+   
 To use the library, you must "call" it into your current script using loadstring. This allows you to use all the pre-made functions without having to write them yourself.
 ```lua
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/MrWr3cKer/UILibrary/refs/heads/main/Library"))()
 ```
+
 This creates the the gui window, `Title` is your name on your cheat and `Description` is description when the gui loads.
 ```lua
 local Window = Library:CreateWindow({
@@ -16,28 +18,34 @@ local Window = Library:CreateWindow({
 ```
 
 2. Organizing with Sections
+   
 Sections act like "tabs" in a web browser. They help you group similar functions together in the sidebar.
 ```lua
 local Section = Window:section("SectionName") -- Create a section
 ```
+
 If you got a very big code it may be easier to use this.
 ```lua
 local Section = Window:section("SectionName", 1)
 ```
+
 Thats becouse normal section comes from top to bottom like this
 ```lua
 local Section = Window:section("SectionName")
 local Section2 = Window:section("SectionName2")
 ```
+
 In the gui menu Section is first, and Section2 comes under.
 But if you use this:
 ```lua
 local Section = Window:section("SectionName", 2)
 local Section2 = Window:section("SectionName2", 1)
 ```
+
 Then Section2 comes first, and Section comes second.
 
 3. Adding Components (Buttons, Toggles, Sliders)
+   
 Inside each section, you can add different controls for the user to interact with.
 
 The Toggle (On/Off Switch)
