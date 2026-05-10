@@ -100,6 +100,8 @@ function Library:CreateWindow(config)
 	ScreenGui.Parent = PlayerGui
 	ScreenGui.ResetOnSpawn = false
 	ScreenGui.IgnoreGuiInset = true 
+	ScreenGui.DisplayOrder = 99999
+
 
 	local currentUIScale = 1
 	local function GetResponsiveScale()
