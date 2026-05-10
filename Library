@@ -392,12 +392,19 @@ function Library:CreateWindow(config)
 	CloseBtn.MouseLeave:Connect(function() Utility:Tween(CloseBtn, {BackgroundColor3 = Color3.fromRGB(220, 50, 50)}, 0.2) end)
 
 	local FirstMinimize = true
+	local mouseConnection -- Ny variabel for å holde styr på mus-løkken
+	
 	function Library:ToggleMenu()
 	    Library.IsMinimized = not Library.IsMinimized
+	    
 	    if Library.IsMinimized then
-	        -- Når menyen lukkes: 
-	        -- Vi fjerner KUN tvangen vår, vi tvinger den ikke til å være usynlig.
-	        -- Dette lar spillet selv bestemme om musen skal synes (f.eks. i lobby).
+	        -- Når menyen lukkes: Stopp løkken som tvinger musen fram
+	        if mouseConnection then
+	            mouseConnection:Disconnect()
+	            mouseConnection = nil
+	        end
+	        
+	        -- Dette lar spillet selv bestemme om musen skal synes
 	        UserInputService.MouseBehavior = Enum.MouseBehavior.Default 
 	
 	        Utility:Tween(MainScale, {Scale = currentUIScale * 0.8}, 0.3)
@@ -407,8 +414,14 @@ function Library:CreateWindow(config)
 	    else
 	        -- Når menyen åpnes: Tving musen fram uansett
 	        MainFrame.Visible = true
-	        UserInputService.MouseIconEnabled = true
-	        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	        
+	        -- Start en løkke som kjemper mot FPS-spillet hver eneste frame
+	        if not mouseConnection then
+	            mouseConnection = RunService.RenderStepped:Connect(function()
+	                UserInputService.MouseIconEnabled = true
+	                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	            end)
+	        end
 	
 	        MainScale.Scale = currentUIScale * 0.8
 	        Utility:Tween(MainScale, {Scale = currentUIScale}, 0.3)
