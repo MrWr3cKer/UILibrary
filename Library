@@ -395,16 +395,17 @@ function Library:CreateWindow(config)
 	function Library:ToggleMenu()
 	    Library.IsMinimized = not Library.IsMinimized
 	    if Library.IsMinimized then
-	        -- Skjul musen og lås den til spillet når menyen lukkes
-	        UserInputService.MouseIconEnabled = false
-	        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+	        -- Når menyen lukkes: 
+	        -- Vi fjerner KUN tvangen vår, vi tvinger den ikke til å være usynlig.
+	        -- Dette lar spillet selv bestemme om musen skal synes (f.eks. i lobby).
+	        UserInputService.MouseBehavior = Enum.MouseBehavior.Default 
 	
 	        Utility:Tween(MainScale, {Scale = currentUIScale * 0.8}, 0.3)
 	        Utility:Tween(MainFrame, {GroupTransparency = 1}, 0.3).Completed:Connect(function()
 	            if Library.IsMinimized then MainFrame.Visible = false end
 	        end)
 	    else
-	        -- Vis musen og gjør den fri når menyen åpnes
+	        -- Når menyen åpnes: Tving musen fram uansett
 	        MainFrame.Visible = true
 	        UserInputService.MouseIconEnabled = true
 	        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
