@@ -393,18 +393,26 @@ function Library:CreateWindow(config)
 
 	local FirstMinimize = true
 	function Library:ToggleMenu()
-		Library.IsMinimized = not Library.IsMinimized
-		if Library.IsMinimized then
-			Utility:Tween(MainScale, {Scale = currentUIScale * 0.8}, 0.3)
-			Utility:Tween(MainFrame, {GroupTransparency = 1}, 0.3).Completed:Connect(function()
-				if Library.IsMinimized then MainFrame.Visible = false end
-			end)
-		else
-			MainFrame.Visible = true
-			MainScale.Scale = currentUIScale * 0.8
-			Utility:Tween(MainScale, {Scale = currentUIScale}, 0.3)
-			Utility:Tween(MainFrame, {GroupTransparency = 0}, 0.3)
-		end
+	    Library.IsMinimized = not Library.IsMinimized
+	    if Library.IsMinimized then
+	        -- Skjul musen og lås den til spillet når menyen lukkes
+	        UserInputService.MouseIconEnabled = false
+	        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+	
+	        Utility:Tween(MainScale, {Scale = currentUIScale * 0.8}, 0.3)
+	        Utility:Tween(MainFrame, {GroupTransparency = 1}, 0.3).Completed:Connect(function()
+	            if Library.IsMinimized then MainFrame.Visible = false end
+	        end)
+	    else
+	        -- Vis musen og gjør den fri når menyen åpnes
+	        MainFrame.Visible = true
+	        UserInputService.MouseIconEnabled = true
+	        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	
+	        MainScale.Scale = currentUIScale * 0.8
+	        Utility:Tween(MainScale, {Scale = currentUIScale}, 0.3)
+	        Utility:Tween(MainFrame, {GroupTransparency = 0}, 0.3)
+	    end
 	end
 
 	MinBtn.MouseButton1Click:Connect(function()
@@ -438,13 +446,6 @@ function Library:CreateWindow(config)
 				Library:ToggleMenu()
 			end
 		end
-	end)
-
-	RunService.RenderStepped:Connect(function()
-	    if MainFrame.Visible and not Library.IsMinimized then
-	        UserInputService.MouseIconEnabled = true
-	        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-	    end
 	end)
 
 	-- ================= SIDEBAR & SEARCH =================
