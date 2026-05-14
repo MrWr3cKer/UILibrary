@@ -1,0 +1,1308 @@
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local Player = game.Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+
+local Library = {
+	ToggleKey = Enum.KeyCode.RightShift,
+	IsMinimized = false,
+	IsBinding = false, 
+	Toggles = {}, 
+	ThemedElements = {}, 
+	Configurables = {}, 
+	SavedConfigs = {}, 
+}
+local Utility = {}
+
+local HasFileSystem = (writefile ~= nil and readfile ~= nil and listfiles ~= nil and isfolder ~= nil and makefolder ~= nil)
+local MockFilesystem = {} 
+
+-- ==========================================
+-- ### THEME SYSTEM ###
+-- ==========================================
+local Themes = {
+	Default = { Background = Color3.fromRGB(30, 30, 30), DarkElement = Color3.fromRGB(60, 60, 60), LightElement = Color3.fromRGB(95, 95, 95), Accent = Color3.fromRGB(28, 90, 190), Text = Color3.fromRGB(255, 255, 255) },
+	Ocean = { Background = Color3.fromRGB(15, 25, 35), DarkElement = Color3.fromRGB(25, 45, 60), LightElement = Color3.fromRGB(40, 75, 100), Accent = Color3.fromRGB(0, 150, 255), Text = Color3.fromRGB(255, 255, 255) },
+	Blood = { Background = Color3.fromRGB(25, 15, 15), DarkElement = Color3.fromRGB(50, 20, 20), LightElement = Color3.fromRGB(80, 30, 30), Accent = Color3.fromRGB(220, 40, 40), Text = Color3.fromRGB(255, 220, 220) },
+	Forest = { Background = Color3.fromRGB(15, 25, 15), DarkElement = Color3.fromRGB(30, 50, 30), LightElement = Color3.fromRGB(45, 75, 45), Accent = Color3.fromRGB(60, 180, 80), Text = Color3.fromRGB(220, 255, 220) },
+}
+local Colors = Themes.Default
+
+function Utility:Colorize(element, property, colorName)
+	element[property] = Colors[colorName]
+	table.insert(Library.ThemedElements, {Element = element, Property = property, ColorName = colorName})
+end
+
+function Utility:UpdateThemeColor(element, property, newColorName)
+	for _, data in pairs(Library.ThemedElements) do
+		if data.Element == element and data.Property == property then
+			data.ColorName = newColorName
+			return
+		end
+	end
+	Utility:Colorize(element, property, newColorName)
+end
+
+function Library:SetTheme(themeName)
+	if Themes[themeName] then
+		Colors = Themes[themeName]
+		for _, data in pairs(Library.ThemedElements) do
+			if data.Element and data.Element.Parent then
+				Utility:Tween(data.Element, {[data.Property] = Colors[data.ColorName]}, 0.3)
+			end
+		end
+	end
+end
+
+function Utility:Tween(obj, properties, duration)
+	local tweenInfo = TweenInfo.new(duration or 0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(obj, tweenInfo, properties)
+	tween:Play()
+	return tween
+end
+
+function Utility:MakeDraggable(topBar, mainFrame)
+	local dragging, dragInput, dragStart, startPos
+	topBar.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = mainFrame.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then dragging = false end
+			end)
+		end
+	end)
+	topBar.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if input == dragInput and dragging then
+			local delta = input.Position - dragStart
+			mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+		end
+	end)
+end
+
+-- ==========================================
+-- ### SELVE BIBLIOTEKET ###
+-- ==========================================
+function Library:CreateWindow(config)
+	local windowTitle = config.Title or "Cheat Hub"
+	local windowDesc = config.Description or "Laster inn filer..."
+
+	local ScreenGui = Instance.new("ScreenGui")
+	ScreenGui.Name = "MyCheatGui"
+	ScreenGui.Parent = PlayerGui
+	ScreenGui.ResetOnSpawn = false
+	ScreenGui.IgnoreGuiInset = true 
+	ScreenGui.DisplayOrder = 2147483647 -- Maksimal verdi (over leave/respawn skjerm)
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+
+	local currentUIScale = 1
+	local function GetResponsiveScale()
+		local camera = workspace.CurrentCamera
+		if not camera then return 1 end
+		local viewport = camera.ViewportSize
+		return math.clamp(viewport.Y / 800, 0.6, 1.2)
+	end
+
+	-- Finn ut hvilken Executor som brukes
+	local executorName = "Roblox Studio"
+	pcall(function()
+		if identifyexecutor then
+			local exec = identifyexecutor()
+			if type(exec) == "string" and exec ~= "" then
+				executorName = exec
+			end
+		end
+	end)
+
+	-- ================= TOOLTIP SYSTEM =================
+	local TooltipUI = Instance.new("Frame", ScreenGui)
+	TooltipUI.Size = UDim2.new(0, 0, 0, 30)
+	TooltipUI.AutomaticSize = Enum.AutomaticSize.X
+	Utility:Colorize(TooltipUI, "BackgroundColor3", "DarkElement")
+	Instance.new("UICorner", TooltipUI).CornerRadius = UDim.new(0, 6)
+	TooltipUI.ZIndex = 100
+	TooltipUI.Visible = false
+	local TooltipScale = Instance.new("UIScale", TooltipUI)
+
+	local TooltipText = Instance.new("TextLabel", TooltipUI)
+	TooltipText.Size = UDim2.new(0, 0, 1, 0)
+	TooltipText.AutomaticSize = Enum.AutomaticSize.X 
+	TooltipText.BackgroundTransparency = 1
+	TooltipText.Font = Enum.Font.Arimo
+	Utility:Colorize(TooltipText, "TextColor3", "Text")
+	TooltipText.TextSize = 14
+	TooltipText.ZIndex = 101
+
+	local TooltipPadding = Instance.new("UIPadding", TooltipUI)
+	TooltipPadding.PaddingLeft = UDim.new(0, 8)
+	TooltipPadding.PaddingRight = UDim.new(0, 8)
+
+	local currentHoverTick = 0
+	function Library:AddTooltip(element, text)
+		if not text then return end
+		element.MouseEnter:Connect(function()
+			local thisTick = tick()
+			currentHoverTick = thisTick
+			task.delay(1.5, function()
+				if currentHoverTick == thisTick and not Library.IsMinimized then
+					TooltipText.Text = text
+					TooltipUI.Visible = true
+				end
+			end)
+		end)
+		element.MouseLeave:Connect(function()
+			currentHoverTick = 0
+			TooltipUI.Visible = false
+		end)
+	end
+
+	RunService.RenderStepped:Connect(function()
+		if TooltipUI.Visible then
+			local mousePos = UserInputService:GetMouseLocation()
+			TooltipUI.Position = UDim2.new(0, mousePos.X + 15, 0, mousePos.Y + 15)
+		end
+	end)
+
+	-- ================= WATERMARK SYSTEM =================
+	local WatermarkUI = Instance.new("Frame", ScreenGui)
+	WatermarkUI.Size = UDim2.new(0, 0, 0, 30)
+	WatermarkUI.AutomaticSize = Enum.AutomaticSize.X
+	WatermarkUI.AnchorPoint = Vector2.new(1, 0)
+	WatermarkUI.Position = UDim2.new(1, -15, 0, 15)
+	Utility:Colorize(WatermarkUI, "BackgroundColor3", "DarkElement")
+	Instance.new("UICorner", WatermarkUI).CornerRadius = UDim.new(0, 8)
+	local WatermarkScale = Instance.new("UIScale", WatermarkUI)
+	WatermarkUI.Visible = false
+
+	local WatermarkText = Instance.new("TextLabel", WatermarkUI)
+	WatermarkText.Size = UDim2.new(0, 0, 1, 0)
+	WatermarkText.AutomaticSize = Enum.AutomaticSize.X 
+	WatermarkText.BackgroundTransparency = 1
+	WatermarkText.Font = Enum.Font.Arimo
+	Utility:Colorize(WatermarkText, "TextColor3", "Text")
+	WatermarkText.TextSize = 14
+
+	local WMPadding = Instance.new("UIPadding", WatermarkUI)
+	WMPadding.PaddingLeft = UDim.new(0, 10)
+	WMPadding.PaddingRight = UDim.new(0, 10)
+
+	local lastTick = tick()
+	local fps = 0
+	RunService.RenderStepped:Connect(function()
+		local currentTick = tick()
+		fps = math.floor(1 / (currentTick - lastTick))
+		lastTick = currentTick
+
+		if WatermarkUI.Visible then
+			local ping = 0
+			pcall(function() ping = math.floor(Player:GetNetworkPing() * 1000) end)
+			WatermarkText.Text = string.format("%s | %s | %d FPS | %d ms | %s", windowTitle, Player.Name, fps, ping, os.date("%X"))
+		end
+	end)
+
+	-- ================= NOTIFY SYSTEM =================
+	local NotifyContainer = Instance.new("Frame", ScreenGui)
+	NotifyContainer.AnchorPoint = Vector2.new(1, 1) 
+	NotifyContainer.Position = UDim2.new(1, -20, 1, -20)
+	NotifyContainer.Size = UDim2.new(0, 300, 1, -40)
+	NotifyContainer.BackgroundTransparency = 1
+
+	local NotifyLayout = Instance.new("UIListLayout", NotifyContainer)
+	NotifyLayout.Padding = UDim.new(0, 10)
+	NotifyLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	NotifyLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+	local NotifScaleFactor = Instance.new("UIScale", NotifyContainer)
+
+	function Library:Notify(title, desc, duration)
+		task.spawn(function()
+			duration = duration or 5
+			local NotifFrame = Instance.new("Frame", NotifyContainer)
+			NotifFrame.Size = UDim2.new(1, 0, 0, 0) 
+			Utility:Colorize(NotifFrame, "BackgroundColor3", "DarkElement")
+			Instance.new("UICorner", NotifFrame).CornerRadius = UDim.new(0, 8)
+			NotifFrame.ClipsDescendants = true 
+
+			local NotifTitle = Instance.new("TextLabel", NotifFrame)
+			NotifTitle.Size = UDim2.new(1, -20, 0, 25)
+			NotifTitle.Position = UDim2.new(0, 10, 0, 5)
+			NotifTitle.BackgroundTransparency = 1
+			NotifTitle.Text = title
+			NotifTitle.FontFace = Font.new("rbxasset://fonts/families/Arimo.json", Enum.FontWeight.Bold)
+			Utility:Colorize(NotifTitle, "TextColor3", "Accent")
+			NotifTitle.TextSize = 18
+			NotifTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+			local NotifDesc = Instance.new("TextLabel", NotifFrame)
+			NotifDesc.Size = UDim2.new(1, -20, 0, 30)
+			NotifDesc.Position = UDim2.new(0, 10, 0, 30)
+			NotifDesc.BackgroundTransparency = 1
+			NotifDesc.Text = desc
+			NotifDesc.Font = Enum.Font.Arimo
+			Utility:Colorize(NotifDesc, "TextColor3", "Text")
+			NotifDesc.TextSize = 14
+			NotifDesc.TextWrapped = true
+			NotifDesc.TextXAlignment = Enum.TextXAlignment.Left
+			NotifDesc.TextYAlignment = Enum.TextYAlignment.Top
+
+			local BarBack = Instance.new("Frame", NotifFrame)
+			BarBack.Size = UDim2.new(1, 0, 0, 4)
+			BarBack.Position = UDim2.new(0, 0, 1, -4)
+			Utility:Colorize(BarBack, "BackgroundColor3", "LightElement")
+			Instance.new("UICorner", BarBack).CornerRadius = UDim.new(0, 8)
+
+			local BarFill = Instance.new("Frame", BarBack)
+			BarFill.Size = UDim2.new(0, 0, 1, 0)
+			Utility:Colorize(BarFill, "BackgroundColor3", "Accent")
+			Instance.new("UICorner", BarFill).CornerRadius = UDim.new(0, 8)
+
+			Utility:Tween(NotifFrame, {Size = UDim2.new(1, 0, 0, 70)}, 0.3).Completed:Wait()
+			Utility:Tween(BarFill, {Size = UDim2.new(1, 0, 1, 0)}, duration).Completed:Wait()
+			Utility:Tween(NotifFrame, {Size = UDim2.new(1, 0, 0, 0)}, 0.3).Completed:Wait()
+			NotifFrame:Destroy()
+		end)
+	end
+
+	-- ================= LOADING SCREEN =================
+	local LoadingFrame = Instance.new("CanvasGroup", ScreenGui)
+	LoadingFrame.Size = UDim2.new(0, 350, 0, 150)
+	Utility:Colorize(LoadingFrame, "BackgroundColor3", "Background")
+	LoadingFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	LoadingFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+	Instance.new("UICorner", LoadingFrame).CornerRadius = UDim.new(0, 12)
+	local LoadScale = Instance.new("UIScale", LoadingFrame)
+
+	local LoadLayout = Instance.new("UIListLayout", LoadingFrame)
+	LoadLayout.Padding = UDim.new(0, 8)
+	LoadLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	LoadLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+
+	local Title = Instance.new("TextLabel", LoadingFrame)
+	Title.Size = UDim2.new(1, 0, 0, 30)
+	Title.BackgroundTransparency = 1
+	Title.Text = windowTitle
+	Title.FontFace = Font.new("rbxasset://fonts/families/Arimo.json", Enum.FontWeight.Bold)
+	Utility:Colorize(Title, "TextColor3", "Text")
+	Title.TextSize = 24
+
+	local Description = Instance.new("TextLabel", LoadingFrame)
+	Description.Size = UDim2.new(1, 0, 0, 20)
+	Description.BackgroundTransparency = 1
+	Description.Text = windowDesc
+	Description.Font = Enum.Font.Arimo
+	Utility:Colorize(Description, "TextColor3", "Text")
+	Description.TextSize = 16
+
+	local LoadingBarContainer = Instance.new("Frame", LoadingFrame)
+	LoadingBarContainer.Size = UDim2.new(0.8, 0, 0, 6)
+	Utility:Colorize(LoadingBarContainer, "BackgroundColor3", "DarkElement")
+	Instance.new("UICorner", LoadingBarContainer).CornerRadius = UDim.new(1, 0)
+
+	local Fill = Instance.new("Frame", LoadingBarContainer)
+	Utility:Colorize(Fill, "BackgroundColor3", "Accent")
+	Fill.Size = UDim2.new(0, 0, 1, 0)
+	Instance.new("UICorner", Fill).CornerRadius = UDim.new(1, 0)
+
+	-- ================= MAIN WINDOW =================
+	local MainFrame = Instance.new("CanvasGroup", ScreenGui)
+	MainFrame.Size = UDim2.new(0, 600, 0, 400)
+	MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+	MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	Utility:Colorize(MainFrame, "BackgroundColor3", "Background")
+	MainFrame.GroupTransparency = 1 
+	MainFrame.Visible = false
+	Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 12)
+	local MainScale = Instance.new("UIScale", MainFrame)
+
+	local function UpdateAllScales()
+		currentUIScale = GetResponsiveScale()
+		if LoadScale and LoadScale.Parent then LoadScale.Scale = currentUIScale end
+		if NotifScaleFactor and NotifScaleFactor.Parent then NotifScaleFactor.Scale = currentUIScale end
+		if TooltipScale and TooltipScale.Parent then TooltipScale.Scale = currentUIScale end
+		if WatermarkScale and WatermarkScale.Parent then WatermarkScale.Scale = currentUIScale end
+		if MainFrame and MainFrame.Visible and not Library.IsMinimized then
+			MainScale.Scale = currentUIScale
+		end
+	end
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(UpdateAllScales)
+	UpdateAllScales()
+
+	local TopBar = Instance.new("Frame", MainFrame)
+	TopBar.Size = UDim2.new(1, 0, 0, 35)
+	TopBar.BackgroundTransparency = 1
+	TopBar.ZIndex = 10 -- Sørger for at den er overst
+	Utility:MakeDraggable(TopBar, MainFrame)
+
+	-- TITEL I MIDTEN MED EXECUTOR-NAVN
+	local TopTitle = Instance.new("TextLabel", TopBar)
+	TopTitle.Size = UDim2.new(0.5, 0, 1, 0)
+	TopTitle.Position = UDim2.new(0.5, 0, 0, 0)
+	TopTitle.AnchorPoint = Vector2.new(0.5, 0)
+	TopTitle.BackgroundTransparency = 1
+	TopTitle.RichText = true
+	TopTitle.Text = string.format("<b>%s</b> | <font size='12'>%s</font>", windowTitle, executorName)
+	TopTitle.Font = Enum.Font.Arimo
+	Utility:Colorize(TopTitle, "TextColor3", "Text")
+	TopTitle.TextSize = 16
+	TopTitle.TextXAlignment = Enum.TextXAlignment.Center
+
+	-- TOP RIGHT CONTROLS
+	local ControlContainer = Instance.new("Frame", TopBar)
+	ControlContainer.Size = UDim2.new(0, 80, 1, 0) -- Gjort bredere for å unngå overlapp
+	ControlContainer.Position = UDim2.new(1, -10, 0, 0)
+	ControlContainer.AnchorPoint = Vector2.new(1, 0)
+	ControlContainer.BackgroundTransparency = 1
+
+	local ControlLayout = Instance.new("UIListLayout", ControlContainer)
+	ControlLayout.FillDirection = Enum.FillDirection.Horizontal
+	ControlLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+	ControlLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	ControlLayout.Padding = UDim.new(0, 8)
+
+	local MinBtn = Instance.new("TextButton", ControlContainer)
+	MinBtn.Size = UDim2.new(0, 25, 0, 25)
+	Utility:Colorize(MinBtn, "BackgroundColor3", "DarkElement")
+	Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
+	MinBtn.Text = "-"
+	Utility:Colorize(MinBtn, "TextColor3", "Text")
+	MinBtn.TextSize = 20
+	MinBtn.FontFace = Font.new("rbxasset://fonts/families/Arimo.json", Enum.FontWeight.Bold)
+
+	local CloseBtn = Instance.new("TextButton", ControlContainer)
+	CloseBtn.Size = UDim2.new(0, 25, 0, 25)
+	CloseBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+	Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+	CloseBtn.Text = "X"
+	CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	CloseBtn.TextSize = 14
+	CloseBtn.FontFace = Font.new("rbxasset://fonts/families/Arimo.json", Enum.FontWeight.Bold)
+
+	-- Hover og Click animasjoner for TopBar Controls
+	MinBtn.MouseEnter:Connect(function() Utility:Tween(MinBtn, {BackgroundColor3 = Color3.fromRGB(math.min(255, Colors.DarkElement.R*255 + 20), math.min(255, Colors.DarkElement.G*255 + 20), math.min(255, Colors.DarkElement.B*255 + 20))}, 0.2) end)
+	MinBtn.MouseLeave:Connect(function() Utility:Tween(MinBtn, {BackgroundColor3 = Colors.DarkElement}, 0.2) end)
+
+	CloseBtn.MouseEnter:Connect(function() Utility:Tween(CloseBtn, {BackgroundColor3 = Color3.fromRGB(255, 80, 80)}, 0.2) end)
+	CloseBtn.MouseLeave:Connect(function() Utility:Tween(CloseBtn, {BackgroundColor3 = Color3.fromRGB(220, 50, 50)}, 0.2) end)
+
+	local FirstMinimize = true
+	function Library:ToggleMenu()
+	    Library.IsMinimized = not Library.IsMinimized
+	    
+	    if Library.IsMinimized then
+	        -- Animasjon for å lukke menyen
+	        Utility:Tween(MainScale, {Scale = currentUIScale * 0.8}, 0.3)
+	        Utility:Tween(MainFrame, {GroupTransparency = 1}, 0.3).Completed:Connect(function()
+	            if Library.IsMinimized then MainFrame.Visible = false end
+	        end)
+	    else
+	        -- Animasjon for å åpne menyen
+	        MainFrame.Visible = true
+	        MainScale.Scale = currentUIScale * 0.8
+	        Utility:Tween(MainScale, {Scale = currentUIScale}, 0.3)
+	        Utility:Tween(MainFrame, {GroupTransparency = 0}, 0.3)
+	    end
+	end
+
+	MinBtn.MouseButton1Click:Connect(function()
+		-- Responsiv Klikk-animasjon
+		Utility:Tween(MinBtn, {Size = UDim2.new(0, 20, 0, 20)}, 0.1).Completed:Wait()
+		Utility:Tween(MinBtn, {Size = UDim2.new(0, 25, 0, 25)}, 0.1)
+
+		if FirstMinimize then
+			FirstMinimize = false
+			local keyName = Library.ToggleKey.Name
+			Library:Notify("Meny Minimert", "Trykk [" .. keyName .. "] når som helst for å åpne menyen igjen.", 6)
+		end
+		Library:ToggleMenu()
+	end)
+
+	CloseBtn.MouseButton1Click:Connect(function()
+		-- Responsiv Klikk-animasjon
+		Utility:Tween(CloseBtn, {Size = UDim2.new(0, 20, 0, 20)}, 0.1).Completed:Wait()
+		Utility:Tween(CloseBtn, {Size = UDim2.new(0, 25, 0, 25)}, 0.1)
+
+		for _, toggle in pairs(Library.Toggles) do
+			if toggle.State then toggle.Callback(false) end
+		end
+		ScreenGui:Destroy()
+	end)
+
+	UserInputService.InputBegan:Connect(function(input)
+		if Library.IsBinding then return end
+		if input.KeyCode == Library.ToggleKey or input.UserInputType == Library.ToggleKey then
+			if not UserInputService:GetFocusedTextBox() then
+				Library:ToggleMenu()
+			end
+		end
+	end)
+
+	-- ================= SIDEBAR & SEARCH =================
+	local SidebarContainer = Instance.new("Frame", MainFrame)
+	SidebarContainer.Size = UDim2.new(0, 140, 1, -40)
+	SidebarContainer.Position = UDim2.new(0, 10, 0, 30)
+	SidebarContainer.BackgroundTransparency = 1
+
+	local SearchBox = Instance.new("TextBox", SidebarContainer)
+	SearchBox.Size = UDim2.new(1, 0, 0, 25)
+	Utility:Colorize(SearchBox, "BackgroundColor3", "DarkElement")
+	Instance.new("UICorner", SearchBox).CornerRadius = UDim.new(0, 6)
+	SearchBox.Text = ""
+	SearchBox.PlaceholderText = "Søk seksjon..."
+	SearchBox.Font = Enum.Font.Arimo
+	Utility:Colorize(SearchBox, "TextColor3", "Text")
+	SearchBox.TextSize = 14
+	SearchBox.ClearTextOnFocus = false
+
+	local Sidebar = Instance.new("ScrollingFrame", SidebarContainer)
+	Sidebar.Size = UDim2.new(1, 0, 1, -30)
+	Sidebar.Position = UDim2.new(0, 0, 0, 30)
+	Sidebar.BackgroundTransparency = 1
+	Sidebar.ScrollBarThickness = 0
+	Sidebar.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	Sidebar.CanvasSize = UDim2.new(0, 0, 0, 0)
+
+	local SidebarLayout = Instance.new("UIListLayout", Sidebar)
+	SidebarLayout.Padding = UDim.new(0, 5)
+	SidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+	local MainDivider = Instance.new("Frame", MainFrame)
+	MainDivider.Size = UDim2.new(0, 2, 1, -40)
+	MainDivider.Position = UDim2.new(0, 160, 0, 30)
+	Utility:Colorize(MainDivider, "BackgroundColor3", "DarkElement")
+	MainDivider.BorderSizePixel = 0
+
+	local ContentContainer = Instance.new("Frame", MainFrame)
+	ContentContainer.Size = UDim2.new(1, -180, 1, -40)
+	ContentContainer.Position = UDim2.new(0, 170, 0, 30)
+	ContentContainer.BackgroundTransparency = 1
+
+	local Window = {}
+	local FirstTab = true
+	local CurrentTab = nil
+	local SectionCount = 0
+	local SectionList = {}
+
+	SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+		local query = string.lower(SearchBox.Text)
+		for _, secData in ipairs(SectionList) do
+			if query == "" or string.find(string.lower(secData.Name), query) then
+				secData.Button.Visible = true
+			else
+				secData.Button.Visible = false
+			end
+		end
+	end)
+
+	task.spawn(function()
+		local currentProgress = 0
+		while currentProgress < 1 do
+			task.wait(math.random(10, 20) / 100)
+			currentProgress = math.min(1, currentProgress + (math.random(15, 30) / 100))
+			Utility:Tween(Fill, {Size = UDim2.new(currentProgress, 0, 1, 0)}, 0.2)
+
+			if currentProgress >= 1 then
+				task.wait(0.5)
+				Utility:Tween(LoadScale, {Scale = currentUIScale * 0.8}, 0.4)
+				Utility:Tween(LoadingFrame, {GroupTransparency = 1}, 0.4).Completed:Wait()
+				LoadingFrame:Destroy()
+
+				MainFrame.Visible = true
+				MainScale.Scale = currentUIScale * 0.8
+				Utility:Tween(MainScale, {Scale = currentUIScale}, 0.4)
+				Utility:Tween(MainFrame, {GroupTransparency = 0}, 0.4)
+			end
+		end
+	end)
+
+	function Window:section(contentInfo, customLayoutOrder)
+		SectionCount = SectionCount + 1
+		local isSettings = customLayoutOrder ~= nil
+		local secName = type(contentInfo) == "string" and contentInfo or "Section"
+
+		local SectionBtn = Instance.new("Frame", Sidebar)
+		SectionBtn.Size = UDim2.new(1, 0, 0, 35)
+		SectionBtn.LayoutOrder = customLayoutOrder or SectionCount
+		Utility:Colorize(SectionBtn, "BackgroundColor3", (FirstTab and not isSettings) and "Accent" or "DarkElement")
+		Instance.new("UICorner", SectionBtn).CornerRadius = UDim.new(0, 8)
+
+		table.insert(SectionList, {Name = secName, Button = SectionBtn})
+
+		if string.find(secName, "rbxassetid") then
+			local Icon = Instance.new("ImageLabel", SectionBtn)
+			Icon.Size = UDim2.new(0, 22, 0, 22)
+			Icon.AnchorPoint = Vector2.new(0.5, 0.5)
+			Icon.Position = UDim2.new(0.5, 0, 0.5, 0)
+			Icon.BackgroundTransparency = 1
+			Icon.Image = secName
+		else
+			local Title = Instance.new("TextLabel", SectionBtn)
+			Title.Size = UDim2.new(1, 0, 1, 0)
+			Title.BackgroundTransparency = 1
+			Title.Text = secName
+			Title.FontFace = Font.new("rbxasset://fonts/families/Arimo.json", Enum.FontWeight.Bold)
+			Utility:Colorize(Title, "TextColor3", "Text")
+			Title.TextSize = 16
+		end
+
+		local ClickBtn = Instance.new("TextButton", SectionBtn)
+		ClickBtn.Size = UDim2.new(1, 0, 1, 0)
+		ClickBtn.BackgroundTransparency = 1
+		ClickBtn.Text = ""
+		ClickBtn.ZIndex = 5
+
+		local BoxSectionScroll = Instance.new("ScrollingFrame", ContentContainer)
+		BoxSectionScroll.Size = UDim2.new(1, 0, 1, 0)
+		BoxSectionScroll.BackgroundTransparency = 1
+		BoxSectionScroll.ScrollBarThickness = 2
+		BoxSectionScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		BoxSectionScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+
+		if FirstTab and not isSettings then
+			CurrentTab = {Btn = SectionBtn, Content = BoxSectionScroll}
+			BoxSectionScroll.Visible = true
+			FirstTab = false
+		else
+			BoxSectionScroll.Visible = false
+		end
+
+		local ScrollLayout = Instance.new("UIListLayout", BoxSectionScroll)
+		ScrollLayout.Padding = UDim.new(0, 10)
+		ScrollLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+		local InnerBox = Instance.new("Frame", BoxSectionScroll)
+		InnerBox.Size = UDim2.new(1, -10, 0, 0)
+		Utility:Colorize(InnerBox, "BackgroundColor3", "DarkElement")
+		InnerBox.AutomaticSize = Enum.AutomaticSize.Y
+		Instance.new("UICorner", InnerBox).CornerRadius = UDim.new(0, 8)
+
+		local InnerLayout = Instance.new("UIListLayout", InnerBox)
+		InnerLayout.Padding = UDim.new(0, 6)
+		local InnerPadding = Instance.new("UIPadding", InnerBox)
+		InnerPadding.PaddingTop = UDim.new(0, 8)
+		InnerPadding.PaddingBottom = UDim.new(0, 8)
+		InnerPadding.PaddingLeft = UDim.new(0, 10)
+		InnerPadding.PaddingRight = UDim.new(0, 10)
+
+		local SectionElements = {}
+
+		ClickBtn.MouseButton1Click:Connect(function()
+			if CurrentTab and CurrentTab.Content ~= BoxSectionScroll then
+				Utility:Tween(SectionBtn, {Size = UDim2.new(0.9, 0, 0, 31)}, 0.1).Completed:Wait()
+				Utility:Tween(SectionBtn, {Size = UDim2.new(1, 0, 0, 35)}, 0.1)
+
+				Utility:UpdateThemeColor(CurrentTab.Btn, "BackgroundColor3", "DarkElement")
+				Utility:Tween(CurrentTab.Btn, {BackgroundColor3 = Colors.DarkElement}, 0.2)
+				CurrentTab.Content.Visible = false
+
+				CurrentTab = {Btn = SectionBtn, Content = BoxSectionScroll}
+				Utility:UpdateThemeColor(SectionBtn, "BackgroundColor3", "Accent")
+				Utility:Tween(SectionBtn, {BackgroundColor3 = Colors.Accent}, 0.2)
+
+				for _, element in ipairs(SectionElements) do
+					element.Scale.Scale = 0
+				end
+
+				BoxSectionScroll.Visible = true
+
+				task.spawn(function()
+					for _, element in ipairs(SectionElements) do
+						Utility:Tween(element.Scale, {Scale = 1}, 0.25)
+						task.wait(0.04) 
+					end
+				end)
+			end
+		end)
+
+		local SectionAPI = {}
+
+		local function RegisterElement(frame)
+			local scale = Instance.new("UIScale", frame)
+			table.insert(SectionElements, {Frame = frame, Scale = scale})
+		end
+
+		function SectionAPI:create_button(options)
+			local btnText = options.text or "Button"
+			local tooltip = options.tooltip
+			local callback = options.Callback or function() end
+
+			local Frame = Instance.new("Frame", InnerBox)
+			Frame.Size = UDim2.new(1, 0, 0, 36)
+			Utility:Colorize(Frame, "BackgroundColor3", "LightElement")
+			Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 6)
+			RegisterElement(Frame)
+
+			local RealBtn = Instance.new("TextButton", Frame)
+			RealBtn.Size = UDim2.new(1, 0, 1, 0)
+			RealBtn.BackgroundTransparency = 1
+			RealBtn.Text = btnText
+			RealBtn.FontFace = Font.new("rbxasset://fonts/families/Arimo.json", Enum.FontWeight.Bold)
+			Utility:Colorize(RealBtn, "TextColor3", "Text")
+			RealBtn.TextSize = 16
+
+			Library:AddTooltip(RealBtn, tooltip)
+
+			RealBtn.MouseEnter:Connect(function() Utility:Tween(Frame, {BackgroundColor3 = Color3.fromRGB(math.max(0, Colors.LightElement.R*255 - 20), math.max(0, Colors.LightElement.G*255 - 20), math.max(0, Colors.LightElement.B*255 - 20))}, 0.2) end)
+			RealBtn.MouseLeave:Connect(function() Utility:Tween(Frame, {BackgroundColor3 = Colors.LightElement}, 0.2) end)
+
+			RealBtn.MouseButton1Click:Connect(function()
+				Utility:Tween(Frame, {Size = UDim2.new(0.95, 0, 0, 32)}, 0.1).Completed:Wait()
+				Utility:Tween(Frame, {Size = UDim2.new(1, 0, 0, 36)}, 0.1)
+				callback()
+			end)
+		end
+
+		function SectionAPI:create_toogle(options)
+			local tglText = options.text or "Toggle"
+			local flag = options.flag or tglText
+			local state = options.state or false
+			local tooltip = options.tooltip
+			local callback = options.Callback or function() end
+
+			local Frame = Instance.new("Frame", InnerBox)
+			Frame.Size = UDim2.new(1, 0, 0, 36)
+			Frame.BackgroundTransparency = 1
+			RegisterElement(Frame)
+
+			local Label = Instance.new("TextLabel", Frame)
+			Label.Size = UDim2.new(1, -50, 1, 0)
+			Label.BackgroundTransparency = 1
+			Label.Text = tglText
+			Label.Font = Enum.Font.Arimo
+			Utility:Colorize(Label, "TextColor3", "Text")
+			Label.TextSize = 16
+			Label.TextXAlignment = Enum.TextXAlignment.Left
+
+			local Switch = Instance.new("Frame", Frame)
+			Switch.Size = UDim2.new(0, 40, 0, 20)
+			Switch.AnchorPoint = Vector2.new(1, 0.5)
+			Switch.Position = UDim2.new(1, 0, 0.5, 0)
+			Utility:Colorize(Switch, "BackgroundColor3", state and "Accent" or "LightElement")
+			Instance.new("UICorner", Switch).CornerRadius = UDim.new(1, 0)
+
+			local Dot = Instance.new("Frame", Switch)
+			Dot.Size = UDim2.new(0, 14, 0, 14)
+			Dot.AnchorPoint = Vector2.new(0, 0.5)
+			Dot.Position = state and UDim2.new(1, -17, 0.5, 0) or UDim2.new(0, 3, 0.5, 0)
+			Dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			Instance.new("UICorner", Dot).CornerRadius = UDim.new(1, 0)
+
+			local Btn = Instance.new("TextButton", Frame)
+			Btn.Size = UDim2.new(1, 0, 1, 0)
+			Btn.BackgroundTransparency = 1
+			Btn.Text = ""
+
+			Library:AddTooltip(Btn, tooltip)
+
+			local function SetState(val)
+				state = val
+				Library.Configurables[flag].Value = val
+				if state then
+					Utility:UpdateThemeColor(Switch, "BackgroundColor3", "Accent")
+					Utility:Tween(Switch, {BackgroundColor3 = Colors.Accent}, 0.2)
+					Utility:Tween(Dot, {Position = UDim2.new(1, -17, 0.5, 0)}, 0.2)
+				else
+					Utility:UpdateThemeColor(Switch, "BackgroundColor3", "LightElement")
+					Utility:Tween(Switch, {BackgroundColor3 = Colors.LightElement}, 0.2)
+					Utility:Tween(Dot, {Position = UDim2.new(0, 3, 0.5, 0)}, 0.2)
+				end
+				callback(state)
+			end
+
+			Library.Configurables[flag] = { Type = "Toggle", Value = state, Set = SetState }
+			table.insert(Library.Toggles, {State = state, Callback = callback})
+
+			Btn.MouseButton1Click:Connect(function()
+				SetState(not state)
+			end)
+		end
+
+		function SectionAPI:create_slider(options)
+			local sldText = options.text or "Slider"
+			local flag = options.flag or sldText
+			local min = options.min_value or 0
+			local max = options.max_value or 100
+			local start = options.start_value or min
+			local inc = options.increment or 1
+			local tooltip = options.tooltip
+			local callback = options.Callback or function() end
+
+			local Frame = Instance.new("Frame", InnerBox)
+			Frame.Size = UDim2.new(1, 0, 0, 50)
+			Frame.BackgroundTransparency = 1
+			RegisterElement(Frame)
+
+			local Label = Instance.new("TextLabel", Frame)
+			Label.Size = UDim2.new(1, -50, 0, 20)
+			Label.Position = UDim2.new(0, 0, 0, 5)
+			Label.BackgroundTransparency = 1
+			Label.Text = sldText
+			Label.Font = Enum.Font.Arimo
+			Utility:Colorize(Label, "TextColor3", "Text")
+			Label.TextSize = 16
+			Label.TextXAlignment = Enum.TextXAlignment.Left
+
+			local ValLabel = Instance.new("TextLabel", Frame)
+			ValLabel.Size = UDim2.new(0, 50, 0, 20)
+			ValLabel.Position = UDim2.new(1, -50, 0, 5)
+			ValLabel.BackgroundTransparency = 1
+			ValLabel.Text = tostring(start)
+			ValLabel.Font = Enum.Font.Arimo
+			Utility:Colorize(ValLabel, "TextColor3", "Text")
+			ValLabel.TextSize = 16
+			ValLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+			local Track = Instance.new("Frame", Frame)
+			Track.Size = UDim2.new(1, 0, 0, 6)
+			Track.Position = UDim2.new(0, 0, 0, 35)
+			Utility:Colorize(Track, "BackgroundColor3", "LightElement")
+			Instance.new("UICorner", Track).CornerRadius = UDim.new(1, 0)
+
+			local percentage = (start - min) / (max - min)
+
+			local Fill = Instance.new("Frame", Track)
+			Fill.Size = UDim2.new(percentage, 0, 1, 0)
+			Utility:Colorize(Fill, "BackgroundColor3", "Accent")
+			Instance.new("UICorner", Fill).CornerRadius = UDim.new(1, 0)
+
+			local Dot = Instance.new("Frame", Track)
+			Dot.Size = UDim2.new(0, 14, 0, 14)
+			Dot.AnchorPoint = Vector2.new(0.5, 0.5)
+			Dot.Position = UDim2.new(percentage, 0, 0.5, 0)
+			Dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			Instance.new("UICorner", Dot).CornerRadius = UDim.new(1, 0)
+
+			local Hitbox = Instance.new("TextButton", Track)
+			Hitbox.Size = UDim2.new(1, 0, 1, 20)
+			Hitbox.Position = UDim2.new(0, 0, 0.5, 0)
+			Hitbox.AnchorPoint = Vector2.new(0, 0.5)
+			Hitbox.BackgroundTransparency = 1
+			Hitbox.Text = ""
+
+			Library:AddTooltip(Hitbox, tooltip)
+
+			local function SetValue(val)
+				val = math.clamp(val, min, max)
+				local newPercent = (val - min) / (max - min)
+				ValLabel.Text = tostring(val)
+				Utility:Tween(Fill, {Size = UDim2.new(newPercent, 0, 1, 0)}, 0.1)
+				Utility:Tween(Dot, {Position = UDim2.new(newPercent, 0, 0.5, 0)}, 0.1)
+				Library.Configurables[flag].Value = val
+				callback(val)
+			end
+
+			Library.Configurables[flag] = { Type = "Slider", Value = start, Set = SetValue }
+
+			local dragging = false
+			local function updateSlider(input)
+				local percent = math.clamp((input.Position.X - Track.AbsolutePosition.X) / Track.AbsoluteSize.X, 0, 1)
+				local rawValue = min + (max - min) * percent
+				local snappedValue = math.floor(rawValue / inc + 0.5) * inc
+				SetValue(snappedValue)
+			end
+
+			Hitbox.InputBegan:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+					dragging = true; updateSlider(input)
+				end
+			end)
+			UserInputService.InputEnded:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+			end)
+			UserInputService.InputChanged:Connect(function(input)
+				if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateSlider(input) end
+			end)
+		end
+
+		function SectionAPI:create_dropdown(options)
+			local ddText = options.text or "Dropdown"
+			local flag = options.flag or ddText
+			local list = options.list or {}
+			local tooltip = options.tooltip
+			local callback = options.Callback or function() end
+
+			local DropFrame = Instance.new("Frame", InnerBox)
+			DropFrame.Size = UDim2.new(1, 0, 0, 36)
+			Utility:Colorize(DropFrame, "BackgroundColor3", "LightElement")
+			DropFrame.AutomaticSize = Enum.AutomaticSize.Y
+			Instance.new("UICorner", DropFrame).CornerRadius = UDim.new(0, 6)
+			RegisterElement(DropFrame)
+
+			local TopBtn = Instance.new("TextButton", DropFrame)
+			TopBtn.Size = UDim2.new(1, 0, 0, 36)
+			TopBtn.BackgroundTransparency = 1
+			TopBtn.Text = "  " .. ddText
+			TopBtn.FontFace = Font.new("rbxasset://fonts/families/Arimo.json", Enum.FontWeight.Bold)
+			Utility:Colorize(TopBtn, "TextColor3", "Text")
+			TopBtn.TextSize = 16
+			TopBtn.TextXAlignment = Enum.TextXAlignment.Left
+
+			Library:AddTooltip(TopBtn, tooltip)
+
+			local Icon = Instance.new("TextLabel", TopBtn)
+			Icon.Size = UDim2.new(0, 30, 1, 0)
+			Icon.Position = UDim2.new(1, -30, 0, 0)
+			Icon.BackgroundTransparency = 1
+			Icon.Text = "+"
+			Utility:Colorize(Icon, "TextColor3", "Text")
+			Icon.TextSize = 20
+
+			local ItemContainer = Instance.new("Frame", DropFrame)
+			ItemContainer.Size = UDim2.new(1, 0, 0, 0)
+			ItemContainer.Position = UDim2.new(0, 0, 0, 36)
+			ItemContainer.BackgroundTransparency = 1
+			ItemContainer.Visible = false
+			ItemContainer.AutomaticSize = Enum.AutomaticSize.Y
+			local ItemLayout = Instance.new("UIListLayout", ItemContainer)
+			ItemLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+			local open = false
+			TopBtn.MouseButton1Click:Connect(function()
+				open = not open
+				ItemContainer.Visible = open
+				Icon.Text = open and "-" or "+"
+			end)
+
+			local function SetOption(itemName)
+				TopBtn.Text = "  " .. ddText .. ": " .. itemName
+				open = false
+				ItemContainer.Visible = false
+				Icon.Text = "+"
+				Library.Configurables[flag].Value = itemName
+				callback(itemName)
+			end
+
+			Library.Configurables[flag] = { Type = "Dropdown", Value = "", Set = SetOption }
+
+			local DropdownAPI = {}
+			function DropdownAPI:Refresh(newList)
+				for _, child in ipairs(ItemContainer:GetChildren()) do
+					if child:IsA("TextButton") then child:Destroy() end
+				end
+				for _, itemName in ipairs(newList) do
+					local ItemBtn = Instance.new("TextButton", ItemContainer)
+					ItemBtn.Size = UDim2.new(1, 0, 0, 30)
+					ItemBtn.BackgroundTransparency = 1
+					ItemBtn.Text = itemName
+					ItemBtn.Font = Enum.Font.Arimo
+					Utility:Colorize(ItemBtn, "TextColor3", "Text")
+					ItemBtn.TextSize = 14
+
+					ItemBtn.MouseButton1Click:Connect(function()
+						SetOption(itemName)
+					end)
+				end
+			end
+
+			DropdownAPI:Refresh(list)
+			return DropdownAPI
+		end
+
+		function SectionAPI:create_input(options)
+			local inText = options.text or "Input"
+			local tooltip = options.tooltip
+			local callback = options.Callback or function() end
+
+			local Frame = Instance.new("Frame", InnerBox)
+			Frame.Size = UDim2.new(1, 0, 0, 36)
+			Utility:Colorize(Frame, "BackgroundColor3", "LightElement")
+			Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 6)
+			RegisterElement(Frame)
+
+			local TextBox = Instance.new("TextBox", Frame)
+			TextBox.Size = UDim2.new(1, -20, 1, 0)
+			TextBox.Position = UDim2.new(0, 10, 0, 0)
+			TextBox.BackgroundTransparency = 1
+			TextBox.Text = ""
+			TextBox.PlaceholderText = inText
+			TextBox.Font = Enum.Font.Arimo
+			Utility:Colorize(TextBox, "TextColor3", "Text")
+			TextBox.TextSize = 14
+			TextBox.TextXAlignment = Enum.TextXAlignment.Left
+
+			Library:AddTooltip(TextBox, tooltip)
+
+			TextBox.FocusLost:Connect(function()
+				callback(TextBox.Text)
+			end)
+
+			return TextBox
+		end
+
+		-- ================= LAGE KEYBIND =================
+		function SectionAPI:create_keybind(options)
+			local kbText = options.text or "Keybind"
+			local flag = options.flag or kbText
+			local currentKey = options.default or Enum.KeyCode.RightShift
+			local tooltip = options.tooltip
+			local callback = options.Callback or function() end
+
+			local Frame = Instance.new("Frame", InnerBox)
+			Frame.Size = UDim2.new(1, 0, 0, 36)
+			Frame.BackgroundTransparency = 1
+			RegisterElement(Frame)
+
+			local Label = Instance.new("TextLabel", Frame)
+			Label.Size = UDim2.new(1, -100, 1, 0)
+			Label.BackgroundTransparency = 1
+			Label.Text = kbText
+			Label.Font = Enum.Font.Arimo
+			Utility:Colorize(Label, "TextColor3", "Text")
+			Label.TextSize = 16
+			Label.TextXAlignment = Enum.TextXAlignment.Left
+
+			Library:AddTooltip(Label, tooltip)
+
+			local BindBtn = Instance.new("TextButton", Frame)
+			BindBtn.Size = UDim2.new(0, 90, 0, 24)
+			BindBtn.AnchorPoint = Vector2.new(1, 0.5)
+			BindBtn.Position = UDim2.new(1, 0, 0.5, 0)
+			Utility:Colorize(BindBtn, "BackgroundColor3", "LightElement")
+			Instance.new("UICorner", BindBtn).CornerRadius = UDim.new(0, 6)
+			BindBtn.Text = currentKey.Name
+			Utility:Colorize(BindBtn, "TextColor3", "Text")
+			BindBtn.Font = Enum.Font.Arimo
+			BindBtn.TextSize = 14
+
+			local isThisBinding = false
+
+			local function SetKey(keyObj)
+				currentKey = keyObj
+				BindBtn.Text = currentKey.Name
+				Utility:UpdateThemeColor(BindBtn, "BackgroundColor3", "LightElement")
+				Utility:Tween(BindBtn, {BackgroundColor3 = Colors.LightElement}, 0.2)
+
+				if Library.Configurables[flag] then
+					Library.Configurables[flag].Value = currentKey.Name
+				end
+
+				callback(currentKey)
+			end
+
+			Library.Configurables[flag] = {
+				Type = "Keybind",
+				Value = currentKey.Name,
+				Set = function(val)
+					local key
+					pcall(function() key = Enum.KeyCode[val] end)
+					if not key then
+						pcall(function() key = Enum.UserInputType[val] end)
+					end
+					if key then
+						SetKey(key)
+					end
+				end
+			}
+
+			BindBtn.MouseButton1Click:Connect(function()
+				Library.IsBinding = true
+				isThisBinding = true
+				BindBtn.Text = "..."
+				Utility:UpdateThemeColor(BindBtn, "BackgroundColor3", "Accent")
+				Utility:Tween(BindBtn, {BackgroundColor3 = Colors.Accent}, 0.2)
+			end)
+
+			UserInputService.InputBegan:Connect(function(input)
+				if isThisBinding then
+					local validKey = false
+
+					if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode ~= Enum.KeyCode.Unknown then
+						currentKey = input.KeyCode
+						validKey = true
+					elseif input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.MouseButton3 then
+						currentKey = input.UserInputType
+						validKey = true
+					end
+
+					if validKey then
+						isThisBinding = false
+						SetKey(currentKey)
+
+						task.spawn(function()
+							task.wait(0.1)
+							Library.IsBinding = false
+						end)
+					end
+				else
+					if input.KeyCode == currentKey or input.UserInputType == currentKey then
+						if not UserInputService:GetFocusedTextBox() then
+							callback(currentKey)
+						end
+					end
+				end
+			end)
+		end
+
+
+		-- ================= LAGE COLOR PICKER =================
+		function SectionAPI:create_colorpicker(options)
+			local cpText = options.text or "Color Picker"
+			local flag = options.flag or cpText
+			local defaultColor = options.color or Color3.fromRGB(255, 255, 255)
+			local defaultAlpha = options.alpha or 1
+			local tooltip = options.tooltip
+			local callback = options.Callback or function() end
+
+			local h, s, v = Color3.toHSV(defaultColor)
+			local a = defaultAlpha
+
+			local Frame = Instance.new("Frame", InnerBox)
+			Frame.Size = UDim2.new(1, 0, 0, 36)
+			Frame.AutomaticSize = Enum.AutomaticSize.Y
+			Utility:Colorize(Frame, "BackgroundColor3", "LightElement")
+			Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 6)
+			RegisterElement(Frame)
+
+			local TopBtn = Instance.new("TextButton", Frame)
+			TopBtn.Size = UDim2.new(1, 0, 0, 36)
+			TopBtn.BackgroundTransparency = 1
+			TopBtn.Text = "  " .. cpText
+			TopBtn.FontFace = Font.new("rbxasset://fonts/families/Arimo.json", Enum.FontWeight.Bold)
+			Utility:Colorize(TopBtn, "TextColor3", "Text")
+			TopBtn.TextSize = 16
+			TopBtn.TextXAlignment = Enum.TextXAlignment.Left
+
+			local ColorPreview = Instance.new("Frame", TopBtn)
+			ColorPreview.Size = UDim2.new(0, 24, 0, 24)
+			ColorPreview.Position = UDim2.new(1, -10, 0.5, 0)
+			ColorPreview.AnchorPoint = Vector2.new(1, 0.5)
+			ColorPreview.BackgroundColor3 = defaultColor
+			Instance.new("UICorner", ColorPreview).CornerRadius = UDim.new(0, 4)
+
+			local PickerContainer = Instance.new("Frame", Frame)
+			PickerContainer.Size = UDim2.new(1, 0, 0, 0)
+			PickerContainer.Position = UDim2.new(0, 0, 0, 36)
+			PickerContainer.BackgroundTransparency = 1
+			PickerContainer.Visible = false
+			PickerContainer.AutomaticSize = Enum.AutomaticSize.Y
+
+			local Layout = Instance.new("UIListLayout", PickerContainer)
+			Layout.Padding = UDim.new(0, 8)
+
+			local ColorMap = Instance.new("TextButton", PickerContainer)
+			ColorMap.Size = UDim2.new(1, -20, 0, 150)
+			ColorMap.Text = ""
+			ColorMap.AutoButtonColor = false
+			ColorMap.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
+
+			local MapDot = Instance.new("Frame", ColorMap)
+			MapDot.Size = UDim2.new(0, 12, 0, 12)
+			MapDot.AnchorPoint = Vector2.new(0.5, 0.5)
+			MapDot.Position = UDim2.new(s, 0, 1 - v, 0)
+			MapDot.BackgroundColor3 = Color3.new(1, 1, 1)
+
+			local open = false
+
+			TopBtn.MouseButton1Click:Connect(function()
+				open = not open
+				PickerContainer.Visible = open
+			end)
+
+			local function UpdateColor()
+				local col = Color3.fromHSV(h, s, v)
+
+				ColorPreview.BackgroundColor3 = col
+				ColorMap.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
+
+				if Library.Configurables[flag] then
+					Library.Configurables[flag].Value = string.format("%f,%f,%f,%f", h, s, v, a)
+				end
+
+				callback(col, a)
+			end
+
+			Library.Configurables[flag] = {
+				Type = "ColorPicker",
+				Value = string.format("%f,%f,%f,%f", h, s, v, a),
+				Set = function(val)
+					local parsed = string.split(val, ",")
+
+					if #parsed == 4 then
+						h = tonumber(parsed[1])
+						s = tonumber(parsed[2])
+						v = tonumber(parsed[3])
+						a = tonumber(parsed[4])
+
+						MapDot.Position = UDim2.new(s, 0, 1 - v, 0)
+
+						UpdateColor()
+					end
+				end
+			}
+
+			local dragging = false
+
+			local function update(input)
+				local percentX = math.clamp((input.Position.X - ColorMap.AbsolutePosition.X) / ColorMap.AbsoluteSize.X, 0, 1)
+				local percentY = math.clamp((input.Position.Y - ColorMap.AbsolutePosition.Y) / ColorMap.AbsoluteSize.Y, 0, 1)
+
+				s = percentX
+				v = 1 - percentY
+
+				MapDot.Position = UDim2.new(percentX, 0, percentY, 0)
+
+				UpdateColor()
+			end
+
+			ColorMap.InputBegan:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 then
+					dragging = true
+					update(input)
+				end
+			end)
+
+			UserInputService.InputEnded:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 then
+					dragging = false
+				end
+			end)
+
+			UserInputService.InputChanged:Connect(function(input)
+				if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+					update(input)
+				end
+			end)
+
+			UpdateColor()
+		end
+
+		return SectionAPI
+	end
+
+	-- ==========================================
+	-- ### SETTINGS & CONFIG SYSTEM ###
+	-- ==========================================
+	local SettingsSection = Window:section("Settings", 9999)
+
+	SettingsSection:create_dropdown({
+		text = "Theme",
+		list = {"Default", "Ocean", "Blood", "Forest", "Amethyst", "Midnight"},
+		tooltip = "Velg fargetema for menyen",
+		Callback = function(val) Library:SetTheme(val) end
+	})
+
+	SettingsSection:create_toogle({
+		text = "Watermark",
+		flag = "ShowWatermark",
+		state = false,
+		tooltip = "Viser FPS, Ping og tid i hjørnet",
+		Callback = function(val) WatermarkUI.Visible = val end
+	})
+
+	SettingsSection:create_keybind({
+		text = "Menu Keybind",
+		flag = "MenuKeybind",
+		default = Enum.KeyCode.RightShift,
+		tooltip = "Bestemmer hvilken tast som skjuler scriptet",
+		Callback = function(key)
+			Library.ToggleKey = key
+		end
+	})
+
+	local function UpdateConfigList()
+		local list = {}
+		if HasFileSystem then
+			if not isfolder("MyCheatHub") then makefolder("MyCheatHub") end
+			for _, file in ipairs(listfiles("MyCheatHub")) do
+				local name = file:match("([^/^\\]+)%.json$")
+				if name then table.insert(list, name) end
+			end
+		else
+			for name, _ in pairs(MockFilesystem) do table.insert(list, name) end
+		end
+		return list
+	end
+
+	local ConfigNameInput = SettingsSection:create_input({
+		text = "Skriv Config Navn...",
+		tooltip = "Navnet på filen du vil lagre"
+	})
+
+	local currentSelectedConfig = ""
+	local ConfigDropdown = SettingsSection:create_dropdown({
+		text = "Saved Configs",
+		list = UpdateConfigList(),
+		tooltip = "Velg en lagret config",
+		Callback = function(val) currentSelectedConfig = val end
+	})
+
+	SettingsSection:create_button({
+		text = "Save Config",
+		tooltip = "Lagrer alle innstillinger til filen",
+		Callback = function()
+			local name = ConfigNameInput.Text
+			if name == "" then Library:Notify("Feil", "Du må skrive et navn først!", 3) return end
+
+			local dataToSave = {}
+			for flag, cfg in pairs(Library.Configurables) do
+				dataToSave[flag] = cfg.Value
+			end
+			local json = HttpService:JSONEncode(dataToSave)
+
+			if HasFileSystem then
+				writefile("MyCheatHub/"..name..".json", json)
+			else
+				MockFilesystem[name] = json
+			end
+			Library:Notify("Lagret", "Config '" .. name .. "' er lagret!", 4)
+			ConfigDropdown:Refresh(UpdateConfigList())
+		end
+	})
+
+	SettingsSection:create_button({
+		text = "Load Config",
+		tooltip = "Laster inn valgt config fra menyen",
+		Callback = function()
+			if currentSelectedConfig == "" then Library:Notify("Feil", "Velg en config i menyen først!", 3) return end
+
+			local json = ""
+			if HasFileSystem then
+				json = readfile("MyCheatHub/"..currentSelectedConfig..".json")
+			else
+				json = MockFilesystem[currentSelectedConfig]
+			end
+
+			if json then
+				local data = HttpService:JSONDecode(json)
+				for flag, val in pairs(data) do
+					if Library.Configurables[flag] then
+						Library.Configurables[flag].Set(val)
+					end
+				end
+				Library:Notify("Lastet inn", "Config '" .. currentSelectedConfig .. "' er lastet!", 4)
+			end
+		end
+	})
+
+	SettingsSection:create_button({
+		text = "Update Config",
+		tooltip = "Overskriver den valgte configen med nåværende instillinger",
+		Callback = function()
+			if currentSelectedConfig == "" then Library:Notify("Feil", "Velg en config å oppdatere!", 3) return end
+
+			local dataToSave = {}
+			for flag, cfg in pairs(Library.Configurables) do
+				dataToSave[flag] = cfg.Value
+			end
+			local json = HttpService:JSONEncode(dataToSave)
+
+			if HasFileSystem then
+				writefile("MyCheatHub/"..currentSelectedConfig..".json", json)
+			else
+				MockFilesystem[currentSelectedConfig] = json
+			end
+			Library:Notify("Oppdatert", "Config '" .. currentSelectedConfig .. "' er overskrevet!", 4)
+		end
+	})
+
+	return Window
+end
+
+return Library
