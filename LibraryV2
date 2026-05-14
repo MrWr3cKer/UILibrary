@@ -659,6 +659,39 @@ function Library:CreateWindow(config)
 			end)
 		end
 
+		function SectionAPI:label(labelText, tooltip)
+			labelText = labelText or "Label"
+			
+			-- Beholder for teksten som kan utvide seg vertikalt
+			local Frame = Instance.new("Frame", InnerBox)
+			Frame.Size = UDim2.new(1, 0, 0, 0) -- Høyde settes til 0 fordi AutomaticSize tar over
+			Frame.BackgroundTransparency = 1
+			Frame.AutomaticSize = Enum.AutomaticSize.Y -- Gjør at rammen vokser nedover
+			RegisterElement(Frame)
+
+			local Label = Instance.new("TextLabel", Frame)
+			Label.Size = UDim2.new(1, 0, 0, 0)
+			Label.AutomaticSize = Enum.AutomaticSize.Y
+			Label.BackgroundTransparency = 1
+			Label.Text = labelText
+			Label.Font = Enum.Font.Arimo
+			Utility:Colorize(Label, "TextColor3", "Text")
+			Label.TextSize = 14
+			Label.TextXAlignment = Enum.TextXAlignment.Left
+			Label.TextWrapped = true -- Dette gjør at teksten hopper til neste linje
+			
+			Library:AddTooltip(Label, tooltip)
+
+			-- API for å kontrollere labelen etter at den er laget
+			local LabelAPI = {}
+			
+			function LabelAPI:update(newText)
+				Label.Text = newText
+			end
+
+			return LabelAPI
+		end
+
 		function SectionAPI:create_toogle(options)
 			local tglText = options.text or "Toggle"
 			local flag = options.flag or tglText
