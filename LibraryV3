@@ -659,6 +659,43 @@ function Library:CreateWindow(config)
 			end)
 		end
 
+		function SectionAPI:label(labelText, tooltip)
+			-- Hovedramme som matcher knappene dine
+			local Frame = Instance.new("Frame", InnerBox)
+			Frame.Size = UDim2.new(1, 0, 0, 0) 
+			Frame.AutomaticSize = Enum.AutomaticSize.Y -- Lar rammen vokse nedover
+			Utility:Colorize(Frame, "BackgroundColor3", "LightElement")
+			Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 6)
+			RegisterElement(Frame) -- Sørger for animasjon når tabben åpnes
+
+			-- Legger til litt luft (padding) så teksten ikke treffer kanten
+			local Padding = Instance.new("UIPadding", Frame)
+			Padding.PaddingLeft = UDim.new(0, 10)
+			Padding.PaddingRight = UDim.new(0, 10)
+			Padding.PaddingTop = UDim.new(0, 8)
+			Padding.PaddingBottom = UDim.new(0, 8)
+
+			local Label = Instance.new("TextLabel", Frame)
+			Label.Size = UDim2.new(1, 0, 0, 0)
+			Label.AutomaticSize = Enum.AutomaticSize.Y
+			Label.BackgroundTransparency = 1
+			Label.Text = labelText or "Label"
+			Label.Font = Enum.Font.Arimo
+			Utility:Colorize(Label, "TextColor3", "Text")
+			Label.TextSize = 14
+			Label.TextXAlignment = Enum.TextXAlignment.Left
+			Label.TextWrapped = true -- Tvinger teksten til ny linje
+
+			Library:AddTooltip(Label, tooltip)
+
+			-- Returnerer en tabell med update-funksjonen
+			return {
+				update = function(_, newText)
+					Label.Text = newText
+				end
+			}
+		end
+
 		function SectionAPI:create_toogle(options)
 			local tglText = options.text or "Toggle"
 			local flag = options.flag or tglText
